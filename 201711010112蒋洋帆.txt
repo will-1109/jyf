@@ -1,0 +1,214 @@
+用管理员身份登陆
+Sqlplus / as sysdba
+
+--------创建用户stu   密码student
+create user stu identified by student;
+
+---------给lxy授权
+grant DBA to stu;
+
+//set serveroutput on;
+
+-----------创建表-------------
+----学生表
+create table  student
+(stuid  number(12,0) primary key ,
+stuname varchar2(30),
+stuxuehao varchar2(30) ,
+stugrade varchar2(30),
+stumajor varchar2(30),
+stusex varchar2(2) );
+-----学生表操作记录--------
+create table stulog(
+users varchar2(15),
+act varchar2(15),
+datime varchar2(30));
+
+--课程表
+create table  class(
+claid number(12,0) primary key,
+claname varchar2(30) unique,
+term varchar2(30),
+teacher varchar2(30));
+
+----课程时间表
+create table  sctime(
+sctimeid number(6,0) primary key,
+claid number(12,0) constraint csctime_id references class(claid),
+sctime varchar2(30),
+location varchar2(30));
+
+----选课表
+create table sc(
+scid number(6,0) primary key,
+stuid number(12,0) constraint s_id references student(stuid),
+claid number(12,0) constraint sc_id references class(claid),
+grades number(6,0)，
+stamament varchar2(8) default ('初考'));
+
+-----------------寝室表----------
+create table dormall(
+iid number(6,0) primary key,
+dormno number(6,0),
+stuid number(12,0) constraint do_id references student(stuid),
+stuname varchar2(30),
+stumajor varchar2(30),
+stusex varchar2(2));
+
+
+
+----------------序列-------------
+create sequence sc_se0
+start with 1
+increment by 1
+maxvalue 10000
+cache 10;
+////////上面这个是选课表的
+///////下面这个是学生表的
+create sequence stu_se
+start with 1
+increment by 1
+maxvalue 10000
+cache 10;
+-----学号自动
+create sequence stu_xh
+start with 2000
+increment by 1
+maxvalue 100000
+cache 10;
+-----------寝室------------------------
+create sequence d_id
+start with 1
+increment by 1
+maxvalue 10000
+cache 10;
+
+
+---------------触发器 学生表插入数据同步到寝室表--------------------------
+create or replace trigger newdorm
+after insert on student
+for each row
+begin 
+insert into dormall(iid,stuid,stuname,stumajor,stusex) values (d_id.nextval,
+:new.stuid,:new.stuname,:new.stumajor,:new.stusex);
+end;
+
+
+-----------------------------------
+课程表
+insert into class values('001','oracle','2020春季学期','王老师');
+insert into class values('002','操作系统','2020春季学期','范老师');
+insert into class values('003','软件工程','2020春季学期','张老师');
+
+select * from class;
+课程时间表
+insert into sctime values('1','001','周一上午第二节','1#403');
+insert into sctime values('2','002','周三上午第一节','1#302');
+insert into sctime values('3','003','周三上午第二节','1#301');
+
+select * from sctime;
+
+学生表
+insert into student  values(stu_se.nextval,'赵钱孙',stu_xh.nextval,'一年级','计科','男');
+insert into student  values(stu_se.nextval,'李晓宇',stu_xh.nextval,'一年级','计科','女');
+insert into student  values(stu_se.nextval,'丁一',stu_xh.nextval,'一年级','计科','男');
+insert into student  values(stu_se.nextval,'王圆',stu_xh.nextval,'一年级','计科','女');
+insert into student  values(stu_se.nextval,'韩阳',stu_xh.nextval,'一年级','计科','男');
+
+select * from student;
+
+-------------------------------
+-------创建视图------------------查看所有不及格的课程的学生和成绩
+create or replace view view1
+as select 
+student.stuname,sc.grades,class.claname
+from student,class,sc
+where grades<60 and sc.claid=class.claid and student.stuid=sc.stuid;
+-------------------
+select * from view1;
+-------------------------------
+----------
+--------------------
+-------------------存储过程---------------------
+-----------------------
+
+create or replace procedure newdorm(dsid dormall.stuid%type,dorno dormall.dormno%type)
+is
+begin
+update dormall set dormno=dorno where stuid=dsid;
+DBMS_OUTPUT.PUT_LINE('  分寝成功');
+end;
+//////输入stuid   寝室号
+给学生指定寝室
+EXECUTE newdorm(2,001);
+EXECUTE newdorm(3,516);
+EXECUTE newdorm(4,001);
+EXECUTE newdorm(5,516);
+EXECUTE newdorm(6,001);
+
+
+create or replace procedure newfs(sid student.stuid%type,cid class.claid%type,
+fs sc.grades%type)
+is
+begin
+insert into sc (scid,stuid,claid,grades)values(sc_se.nextval,sid,cid,fs);
+DBMS_OUTPUT.PUT_LINE('分数记录成功');
+end;
+//////输入学号 课程号 分数
+给学生上分数
+EXECUTE newfs(2,1,98);
+EXECUTE newfs(3,1,100);
+EXECUTE newfs(4,1,80);
+EXECUTE newfs(5,1,56);
+EXECUTE newfs(6,1,33);
+
+
+-------------------游标-------------
+
+-------------将成绩低于60分的变成待补考-----
+declare
+cursor newstate
+is
+select scid from sc where grades<60 for update;
+nn newstate%rowtype;
+begin
+open newstate;
+loop
+fetch newstate into nn;
+exit when newstate%notfound;
+update sc set stamament='待补考' where current of newstate;
+end loop;
+DBMS_OUTPUT.PUT_LINE('已标记待补考记录！');
+commit;
+close newstate;
+end;
+
+select * from sc;
+
+-------------函数--------------
+create or replace function getmumber(
+ddno in number,
+dsum out number)
+return student.stuname%type
+as
+ddname class.claname%type;
+begin
+select wm_concat(stuname) into ddname from dormall where
+dormno=ddno;
+select count(*) into dsum from dormall
+where dormno=ddno;
+return ddname;
+end getmumber;
+
+ 
+*************wm_concat() 自带的 将多条记录合并成一条
+
+-------------------调用 输入寝室号查人、总人数--------------
+declare
+dname dormall.stuname%type;
+dum number;
+begin
+dname:=getmumber(001,dum);
+DBMS_OUTPUT.PUT_LINE('姓名：'||dname||'  总人数：'||dum);
+end;
+
